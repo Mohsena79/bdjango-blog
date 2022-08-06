@@ -1,13 +1,16 @@
+from re import search
 from tkinter import N
 from tkinter.messagebox import NO
 from django.shortcuts import render, get_object_or_404
 from .models import Post
 from django.core.paginator import EmptyPage, PageNotAnInteger, Paginator
 from django.views.generic import ListView
-from .forms import EmailPostForm, CommentForm
+from .forms import EmailPostForm, CommentForm, SearchForm
 from django.core.mail import send_mail
 from taggit.models import Tag
 from django.db.models import Count
+from django.contrib.postgres.search import SearchVector, SearchRank, SearchQuery
+
 # class PostListView(ListView):
 #     queryset = Post.published.all()
 #     context_object_name = 'posts'
@@ -52,7 +55,7 @@ def post_detail(request, year, month, day, post):
         tags__in=post_tags_ids).exclude(id=post.id)
     similar_posts = similar_posts.annotate(same_tags=Count(
         'tags')).order_by('-same_tags', '-publish')[:4]
-    return render(request, 'blog/post/detail.html', {'post': post, 'comments': comments, 'comment_form': comment_form, 'new_comment': new_comment,'similar_posts':similar_posts})
+    return render(request, 'blog/post/detail.html', {'post': post, 'comments': comments, 'comment_form': comment_form, 'new_comment': new_comment, 'similar_posts': similar_posts})
 
 
 def post_share(request, post_id):
@@ -72,3 +75,18 @@ def post_share(request, post_id):
     else:
         form = EmailPostForm()
     return render(request, 'blog/post/share.html', {'post': post, 'form': form, 'sent': sent})
+
+
+def post_search(request):
+    form = SearchForm()
+    query = None
+    results = []
+    if 'query' in request.GET:
+        form = SearchForm(request.GET)
+        if form.is_valid():
+            query = form.cleaned_data['query']
+            search_vector = SearchVector('title', 'body')
+            search_query = SearchQuery(query)
+            results = Post.published.annotate(
+                search=search_vector, rank=SearchRank(search_vector, search_query)).filter(search=search_query).order_by('-rank')
+    return render(request, 'blog/post/search.html', {'form': form, 'results': results, 'query': query})
